@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AI-Pay Hub - 管理看板</title>
+<meta name="description" content="查看支付网关收入统计和订单流水。">
+<link rel="stylesheet" href="css/style.css">
+<style>
+.dash-header h1{font-size:2rem;font-weight:640;letter-spacing:-0.03em;animation:fade-up .5s var(--ease-out) both}
+.dash-header p{animation:fade-up .5s .05s var(--ease-out) both}
+@keyframes fade-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.login-card{max-width:440px;margin:2rem auto}
+.login-card .icon-lock{margin:0 auto 1rem;width:48px;height:48px;border-radius:50%;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;color:var(--accent);transition:all .4s var(--ease-spring)}
+.login-card:focus-within .icon-lock{transform:scale(1.1);background:var(--accent);color:#fff}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem;box-shadow:var(--shadow-sm);transition:all .3s var(--ease-spring);cursor:default;position:relative;overflow:hidden}
+.stat-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent);transform:scaleX(0);transition:transform .4s var(--ease-out)}
+.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.stat-card:hover::after{transform:scaleX(1)}
+.stat-card .head{font-size:0.75rem;color:var(--fg-muted);text-transform:uppercase;letter-spacing:0.06em}
+.stat-card .val{font-size:2rem;font-weight:620;letter-spacing:-0.03em;font-variant-numeric:tabular-nums;margin-top:0.25rem;transition:color .3s}
+.stat-card .sub{display:flex;gap:1rem;margin-top:0.75rem;font-size:0.8125rem;flex-wrap:wrap}
+.stat-card .sub span{display:inline-flex;align-items:center;gap:0.25rem}
+@media(max-width:500px){.stat-grid{grid-template-columns:1fr}}
+.gw-info-row{display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 2rem;font-size:0.8125rem}
+.gw-info-row .lbl{color:var(--fg-muted)}
+.gw-info-row .val{font-family:var(--font-mono);font-size:0.75rem;color:var(--fg-secondary)}
+#dashboard-content{animation:fade-up .4s var(--ease-out) both}
+</style>
+</head>
+<body>
+<main class="container">
+  <header style="margin-bottom:1.5rem">
+    <nav class="tool-nav">
+      <a href="/">首页</a>
+      <a href="/generator">生成器</a>
+      <a href="/dash" class="active">看板</a>
+      <a href="/dify-guide">集成指南</a>
+      <a href="/markdown-lock-guide">内容锁</a>
+      <span class="nav-spacer"></span>
+      <button class="lang-toggle" onclick="I18N.toggle()">EN</button>
+    </nav>
+    <div class="dash-header">
+      <h1>管理看板</h1>
+      <p class="text-muted" style="margin-bottom:0">收入统计与订单流水查询。</p>
+    </div>
+  </header>
+
+  <section class="card login-card" id="login-card">
+    <div class="icon-lock">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+    </div>
+    <h2 style="text-align:center">验证身份</h2>
+    <form id="login-form" novalidate>
+      <label>网关 ID</label>
+      <input type="text" id="gatewayId" required placeholder="gw_xxx..." autocomplete="off">
+      <label>管理密钥</label>
+      <input type="password" id="adminKey" required placeholder="ask_xxx..." autocomplete="off">
+      <button type="submit" id="login-btn">
+        <span id="login-btn-text">查看看板</span>
+        <span id="login-btn-loading" style="display:none">验证中...</span>
+      </button>
+      <p id="login-error" style="display:none;color:var(--danger);font-size:0.8125rem;margin-top:0.5rem;text-align:center"></p>
+    </form>
+  </section>
+
+  <div id="dashboard-content" style="display:none">
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="head">总收入</div>
+        <div class="val" id="total-revenue" style="color:var(--accent)">CNY 0.00</div>
+      </div>
+      <div class="stat-card">
+        <div class="head">订单概览</div>
+        <div class="sub">
+          <span><span class="badge badge-ok" id="paid-count">0</span> 已支付</span>
+          <span><span class="badge badge-warn" id="pending-count">0</span> 待支付</span>
+          <span><span style="font-weight:620;font-variant-numeric:tabular-nums" id="total-count">0</span> 总计</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="inline-row" style="margin-bottom:0.75rem">
+        <h2 style="margin-bottom:0">网关信息</h2>
+        <div class="inline-row" style="gap:0.5rem">
+          <span class="badge badge-ok" id="status-badge">已启用</span>
+          <button class="btn-small btn-secondary" id="toggle-btn" onclick="toggleGateway()">停用</button>
+        </div>
+      </div>
+      <div class="gw-info-row">
+        <div class="lbl">上游地址</div><div class="val" id="gw-target"></div>
+        <div class="lbl">每次调用价格</div><div class="val" id="gw-price"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>最近订单</h2>
+      <div style="overflow-x:auto">
+        <table><thead><tr><th>订单</th><th>金额</th><th>方式</th><th>状态</th><th>时间</th></tr></thead><tbody id="order-table"></tbody></table>
+      </div>
+      <div id="no-orders" class="empty-state" style="display:none"><p>暂无订单。</p></div>
+      <div id="orders-loading" class="empty-state"><div class="skeleton" style="height:2rem;width:100%;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:80%;margin-bottom:0.5rem"></div><div class="skeleton" style="height:2rem;width:60%"></div><p>加载中...</p></div>
+      <div id="orders-error" class="empty-state" style="display:none"><p style="color:var(--danger)">加载失败。<button class="btn-small btn-secondary" onclick="loadData()">重试</button></p></div>
+    </div>
+  </div>
+</main>
+
+<script src="/js/i18n.js"></script>
+<script>
+let gwId='',aKey='',gwEnabled=true,refreshTimer=null;
+I18N.init();
+
+function renderOrders(orders) {
+  const tb = document.getElementById('order-table');
+  const lang = I18N.lang;
+  document.getElementById('orders-loading').style.display = 'none';
+  if (!orders.length) { document.getElementById('no-orders').style.display = ''; tb.innerHTML = ''; return; }
+  document.getElementById('no-orders').style.display = 'none';
+  tb.innerHTML = orders.map(o => {
+    const cls = o.status === 'PAID' ? 'badge-ok' : o.status === 'PENDING' ? 'badge-warn' : 'badge-err';
+    const method = lang === 'zh' ? (o.paymentMethod === 'alipay' ? '支付宝' : '微信') : (o.paymentMethod === 'alipay' ? 'Alipay' : 'WeChat');
+    const status = o.status === 'PAID' ? '已支付' : o.status === 'PENDING' ? '待支付' : o.status;
+    return `<tr><td title="${o.orderId}">${o.orderId.slice(-12)}</td><td>${(o.amount/100).toFixed(2)}</td><td>${method}</td><td><span class="badge ${cls}">${status}</span></td><td>${new Date(o.createdAt).toLocaleString(lang==='zh'?'zh-CN':'en-US')}</td></tr>`;
+  }).join('');
+}
+
+window.addEventListener('i18n-changed', async () => { if (gwId) await loadData(); });
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('login-btn'), btnText = document.getElementById('login-btn-text'), btnLoad = document.getElementById('login-btn-loading'), errEl = document.getElementById('login-error');
+  gwId = document.getElementById('gatewayId').value.trim();
+  aKey = document.getElementById('adminKey').value.trim();
+  btn.disabled = true; btnText.style.display = 'none'; btnLoad.style.display = ''; errEl.style.display = 'none';
+  try {
+    const res = await fetch('/generate/validate', { method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gatewayId:gwId,adminKey:aKey}) });
+    const d = await res.json();
+    if (!d.valid) throw new Error('验证失败，请检查网关 ID 和管理密钥。');
+    gwEnabled = d.gateway.enabled; updateStatusBadge();
+    document.getElementById('login-card').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = '';
+    await loadGatewayInfo(); await loadData();
+    refreshTimer = setInterval(loadData, 30000);
+  } catch (err) { errEl.textContent = err.message; errEl.style.display = ''; }
+  finally { btn.disabled = false; btnText.style.display = ''; btnLoad.style.display = 'none'; }
+});
+
+async function loadGatewayInfo() {
+  try { const res = await fetch(`/dash/gateway?gatewayId=${gwId}&adminKey=${aKey}`); const d = await res.json();
+    document.getElementById('gw-target').textContent = d.targetUrl;
+    document.getElementById('gw-price').textContent = 'CNY ' + d.price.toFixed(2); } catch {}
+}
+
+async function loadData() {
+  document.getElementById('orders-error').style.display = 'none';
+  try {
+    const s = await (await fetch(`/dash/stats?gatewayId=${gwId}&adminKey=${aKey}`)).json();
+    countUp(document.getElementById('total-revenue'), s.totalRevenue/100, 'CNY ');
+    countUp(document.getElementById('paid-count'), s.paidOrders, '');
+    countUp(document.getElementById('pending-count'), s.pendingOrders, '');
+    countUp(document.getElementById('total-count'), s.totalOrders, '');
+    const { orders } = await (await fetch(`/dash/orders?gatewayId=${gwId}&adminKey=${aKey}&limit=50`)).json();
+    renderOrders(orders);
+  } catch { document.getElementById('orders-loading').style.display = 'none'; document.getElementById('orders-error').style.display = ''; }
+}
+
+async function toggleGateway() {
+  const btn = document.getElementById('toggle-btn'); btn.disabled = true;
+  try { const r = await fetch('/generate/update',{method:'POST',headers:{'Content-Type':'application/json','Admin-Secret-Key':aKey},body:JSON.stringify({gatewayId:gwId,enabled:!gwEnabled})}); const d = await r.json(); gwEnabled = d.enabled; updateStatusBadge(); showToast(gwEnabled?'已启用':'已停用','success'); }
+  catch { showToast('操作失败','error'); } finally { btn.disabled = false; }
+}
+
+function updateStatusBadge() {
+  const b = document.getElementById('status-badge'), t = document.getElementById('toggle-btn');
+  b.className = 'badge badge-pulse ' + (gwEnabled?'badge-ok':'badge-err');
+  b.textContent = gwEnabled ? '已启用' : '已停用';
+  b.style.transform = 'scale(1.15)'; setTimeout(() => b.style.transform = '', 300);
+  t.textContent = gwEnabled ? '停用' : '启用';
+}
+
+function countUp(el, target, prefix) {
+  const dur = 800, start = performance.now();
+  const initial = parseFloat(el.textContent.replace(/[^0-9.]/g,'')) || 0;
+  function frame(now) {
+    const p = Math.min((now - start) / dur, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = prefix + (initial + (target - initial) * eased).toFixed(2);
+    if (p < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+function showToast(msg,type) { const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity 200ms';setTimeout(()=>t.remove(),200)},3000); }
+</script>
+</body>
+</html>

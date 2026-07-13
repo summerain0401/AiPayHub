@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AI-Pay Hub - 动态内容锁</title>
+<meta name="description" content="保护 Markdown 技能包和 MCP 配置不被白嫖。">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<main class="container">
+  <header style="margin-bottom:2rem">
+    <nav class="tool-nav">
+      <a href="/">首页</a>
+      <a href="/generator">生成器</a>
+      <a href="/dash">看板</a>
+      <a href="/dify-guide">集成指南</a>
+      <a href="/markdown-lock-guide" class="active">内容锁</a>
+      <span class="nav-spacer"></span>
+      <button class="lang-toggle" onclick="I18N.toggle()">EN</button>
+    </nav>
+    <h1>动态内容锁</h1>
+    <p class="text-muted" style="margin-bottom:0">保护 .cursorrules、MCP 配置等 Markdown 资产不被白嫖，付费后一次交付、阅后即焚。</p>
+  </header>
+
+  <section class="card">
+    <h2>工作原理</h2>
+    <ol style="padding-left:1.25rem;font-size:0.9375rem;color:var(--fg-secondary);line-height:2.2">
+      <li>创建一个网关，指向上游 Markdown 文件的原始地址</li>
+      <li>将代理地址分享给用户，而非原始链接</li>
+      <li>未付费用户看到的是支付提示 Markdown</li>
+      <li>付费后，完整内容只交付一次</li>
+      <li>内容交付后立即从 Redis 中销毁（阅后即焚）</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>示例：保护 .cursorrules</h2>
+    <div style="margin-bottom:0.75rem">
+      <span style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-muted)">私有原始地址</span>
+      <pre style="margin-top:0.25rem">https://raw.githubusercontent.com/user/repo/main/.cursorrules</pre>
+    </div>
+    <div>
+      <span style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--fg-muted)">代理地址（分享给用户）</span>
+      <pre style="margin-top:0.25rem">https://你的域名/gw_xxx/.cursorrules</pre>
+    </div>
+    <p class="text-muted" style="font-size:0.8125rem;margin-top:0.75rem;margin-bottom:0">用户访问代理地址时看到支付提示。付费后获得完整内容一次，随后订单销毁。</p>
+  </section>
+
+  <section class="card">
+    <h2>支持的内容类型</h2>
+    <ul style="padding-left:1.25rem;font-size:0.875rem;color:var(--fg-secondary);line-height:2.2">
+      <li><code>.cursorrules</code> 文件</li>
+      <li>MCP 服务器配置文件</li>
+      <li>Prompt 模板和技能包</li>
+      <li>任何 Markdown 或纯文本内容</li>
+    </ul>
+    <p class="text-muted" style="font-size:0.8125rem;margin-top:0.5rem;margin-bottom:0">请求携带 <code>Accept: text/markdown</code> 头时会收到 Markdown 格式的支付提示。</p>
+  </section>
+</main>
+<script src="/js/i18n.js"></script>
+<script>I18N.init();</script>
+</body>
+</html>

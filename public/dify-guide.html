@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AI-Pay Hub - Dify / Coze 集成指南</title>
+<meta name="description" content="如何将 AI-Pay Hub 支付网关集成到 Dify 和 Coze 工作流中。">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<main class="container">
+  <header style="margin-bottom:2rem">
+    <nav class="tool-nav">
+      <a href="/">首页</a>
+      <a href="/generator">生成器</a>
+      <a href="/dash">看板</a>
+      <a href="/dify-guide" class="active">集成指南</a>
+      <a href="/markdown-lock-guide">内容锁</a>
+      <span class="nav-spacer"></span>
+      <button class="lang-toggle" onclick="I18N.toggle()">EN</button>
+    </nav>
+    <h1>Dify / Coze 集成指南</h1>
+    <p class="text-muted" style="margin-bottom:0">导入 OpenAPI Schema，几分钟搭建一个带支付门槛的 AI 工作流。</p>
+  </header>
+
+  <section class="card">
+    <h2>第一步：导入 OpenAPI Schema</h2>
+    <ol style="padding-left:1.25rem;font-size:0.9375rem;color:var(--fg-secondary);line-height:2.2">
+      <li>在 Dify 中进入 <strong>工具</strong> &rarr; <strong>自定义工具</strong> &rarr; <strong>从 OpenAPI 导入</strong></li>
+      <li>粘贴你的 Schema 地址：<br><code style="font-size:0.75rem">https://你的域名/schema/{GATEWAY_ID}/openapi.json</code></li>
+      <li>导入后出现两个操作节点：<code>proxyRequest</code> 和 <code>pollStatus</code></li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>第二步：搭建工作流</h2>
+    <pre style="font-size:0.7rem;line-height:2">
+[开始]
+  |
+  v
+[HTTP 节点: POST /{gatewayId}/{路径}]
+  |
+  v
+[条件判断: 响应状态码 == 402?]
+  |
+  +-- 是 (需要支付):
+  |     | 提取 paymentUrl 和 orderId
+  |     | 发送支付链接给用户
+  |     | 循环轮询 GET /poll/{orderId}
+  |     | 重试请求 + X-Order-Id 头
+  |     | 流式输出 AI 回复
+  |
+  +-- 否: 直接流式输出 AI 回复</pre>
+  </section>
+
+  <section class="card">
+    <h2>第三步：支付流程</h2>
+    <ol style="padding-left:1.25rem;font-size:0.9375rem;color:var(--fg-secondary);line-height:2.2">
+      <li>用户收到 X402 支付链接（支付宝）</li>
+      <li>用户通过刷脸 / 指纹 / 密码完成支付</li>
+      <li>网关收到支付宝异步通知，标记订单为已支付</li>
+      <li>工作流轮询检测到状态变更</li>
+      <li>流式返回 AI 结果给用户，订单响应完成后即焚</li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>支付后重试</h2>
+    <p class="text-muted" style="font-size:0.875rem">用户支付完成后，使用同一个请求再加一个请求头即可重试：</p>
+    <pre>X-Order-Id: ord_xxxxxxxx</pre>
+    <p class="text-muted" style="font-size:0.8125rem;margin-top:0.75rem;margin-bottom:0">网关验证订单已支付后放行转发到上游 AI，响应结束后立即删除订单。</p>
+  </section>
+</main>
+<script src="/js/i18n.js"></script>
+<script>I18N.init();</script>
+</body>
+</html>

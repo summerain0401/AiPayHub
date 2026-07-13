@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AI-Pay Hub - 网关生成器</title>
+<meta name="description" content="一键生成 AI 微支付网关。">
+<link rel="stylesheet" href="css/style.css">
+<style>
+.gen-hero{text-align:center;padding:1.5rem 0 0.5rem}
+.gen-hero h1{font-size:2rem;font-weight:640;letter-spacing:-0.03em;animation:fade-up .5s var(--ease-out) both}
+.gen-hero p{color:var(--fg-secondary);font-size:1rem;max-width:44ch;margin:0 auto;animation:fade-up .5s .05s var(--ease-out) both}
+@keyframes fade-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:1.25rem}
+.price-option{border:1.5px solid var(--border);border-radius:var(--radius);padding:0.85rem 0.65rem;text-align:center;cursor:pointer;transition:all .25s var(--ease-spring);background:var(--surface);position:relative;overflow:hidden}
+.price-option::after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 0 var(--accent);transition:box-shadow .3s}
+.price-option:hover{border-color:var(--border-hover);transform:translateY(-2px)}
+.price-option.selected{border-color:var(--accent);background:var(--accent-dim);transform:scale(1.03)}
+.price-option.selected::after{box-shadow:inset 0 0 0 1px var(--accent)}
+.price-option .price{font-size:1.35rem;font-weight:620;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;transition:transform .25s var(--ease-spring)}
+.price-option.selected .price{transform:scale(1.08)}
+.price-option .label{font-size:0.6875rem;color:var(--fg-muted);text-transform:uppercase;letter-spacing:0.06em;margin-top:0.1rem}
+@media(max-width:500px){.price-grid{grid-template-columns:1fr}}
+.result-highlight{padding:1.25rem;border-radius:var(--radius);background:oklch(98% 0.003 255);border:1px solid var(--border);margin-bottom:0.75rem}
+#result-card{animation:result-in .5s var(--ease-spring) both}
+@keyframes result-in{from{opacity:0;transform:translateY(20px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+</style>
+</head>
+<body>
+<main class="container">
+  <header style="margin-bottom:1.5rem">
+    <nav class="tool-nav">
+      <a href="/">首页</a>
+      <a href="/generator" class="active">生成器</a>
+      <a href="/dash">看板</a>
+      <a href="/dify-guide">集成指南</a>
+      <a href="/markdown-lock-guide">内容锁</a>
+      <span class="nav-spacer"></span>
+      <button class="lang-toggle" onclick="I18N.toggle()">EN</button>
+    </nav>
+    <div class="gen-hero">
+      <h1>AI-Pay Hub</h1>
+      <p>AI 创作者的微支付网关，一键生成，即刻变现。</p>
+    </div>
+  </header>
+
+  <section class="card" id="form-card">
+    <h2>创建网关</h2>
+    <form id="generator-form" novalidate>
+      <label>上游 AI 接口地址</label>
+      <input type="url" id="targetUrl" required placeholder="https://api.dify.ai/v1/workflows/run" autocomplete="url">
+
+      <label>每次调用价格</label>
+      <div class="price-grid" id="price-grid">
+        <div class="price-option" data-tier="tier_micro"><div class="price">¥0.50</div><div class="label">微型</div></div>
+        <div class="price-option selected" data-tier="tier_standard"><div class="price">¥2.00</div><div class="label">标准</div></div>
+        <div class="price-option" data-tier="tier_pro"><div class="price">¥10.00</div><div class="label">专业</div></div>
+      </div>
+      <input type="hidden" id="tierId" value="tier_standard">
+
+      <label>邮箱 <span style="color:var(--fg-muted);font-weight:400">(选填)</span></label>
+      <input type="email" id="email" placeholder="your@example.com" autocomplete="email">
+
+      <button type="submit" id="submit-btn">
+        <span id="btn-text">生成网关</span>
+        <span id="btn-loading" style="display:none">正在生成...</span>
+      </button>
+      <p id="form-error" style="display:none;color:var(--danger);font-size:0.875rem;margin-top:0.5rem"></p>
+    </form>
+  </section>
+
+  <section class="card" id="result-card" style="display:none">
+    <h2 style="color:var(--accent)">网关创建成功</h2>
+
+    <label>公开网关 ID</label>
+    <div class="result-box" id="gateway-id-display"></div>
+    <button class="btn-small btn-secondary" onclick="copyText('gateway-id-display',this)" id="copy-gwid-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      复制
+    </button>
+
+    <label style="margin-top:1.25rem">管理密钥 <span style="color:var(--warn);font-weight:550">(仅此一次)</span></label>
+    <div class="result-box" id="admin-key-display" style="border-color:color-mix(in oklch, var(--warn), transparent 60%)"></div>
+    <p style="color:var(--warn);font-size:0.75rem;font-weight:510;margin-bottom:0.5rem">密钥仅显示一次，请立即保存！关闭页面后将无法找回。</p>
+    <button class="btn-small btn-secondary" onclick="copyText('admin-key-display',this)" id="copy-key-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      复制
+    </button>
+
+    <div class="result-highlight">
+      <p style="font-size:0.8125rem;color:var(--fg-secondary);margin-bottom:0.25rem">代理地址</p>
+      <code id="proxy-url" style="word-break:break-all;font-size:0.75rem;background:none;padding:0"></code>
+      <p style="font-size:0.7rem;color:var(--fg-muted);margin-top:0.5rem;margin-bottom:0">将此地址替换原有的 API 地址。首次请求返回 HTTP 402 支付链接。</p>
+    </div>
+
+    <div class="inline-row" style="margin-top:1.25rem">
+      <a href="/dash" class="btn-small btn-secondary" style="text-decoration:none">管理看板</a>
+      <a href="/dify-guide" class="btn-small btn-secondary" style="text-decoration:none">Dify 集成指南</a>
+      <a href="/markdown-lock-guide" class="btn-small btn-secondary" style="text-decoration:none">内容锁指南</a>
+    </div>
+  </section>
+</main>
+
+<script src="/js/i18n.js"></script>
+<script>
+I18N.init();
+
+const priceGrid = document.getElementById('price-grid');
+const tierInput = document.getElementById('tierId');
+priceGrid.addEventListener('click', (e) => {
+  const opt = e.target.closest('.price-option');
+  if (!opt) return;
+  priceGrid.querySelectorAll('.price-option').forEach(o => o.classList.remove('selected'));
+  opt.classList.add('selected');
+  tierInput.value = opt.dataset.tier;
+});
+
+fetch('/generate/tiers').then(r => r.json()).then(data => {
+  if (data.tiers && data.tiers.length) {
+    priceGrid.innerHTML = data.tiers.map((t, i) =>
+      `<div class="price-option${i === 1 ? ' selected' : ''}" data-tier="${t.id}">
+        <div class="price">${t.labelCNY}</div><div class="label">/ 次</div>
+      </div>`
+    ).join('');
+    tierInput.value = data.tiers[1]?.id || data.tiers[0]?.id || '';
+  }
+}).catch(() => {});
+
+const form = document.getElementById('generator-form');
+const formError = document.getElementById('form-error');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const submitBtn = document.getElementById('submit-btn');
+  const btnText = document.getElementById('btn-text');
+  const btnLoading = document.getElementById('btn-loading');
+  formError.style.display = 'none';
+  submitBtn.disabled = true;
+  btnText.style.display = 'none';
+  btnLoading.style.display = '';
+
+  try {
+    const res = await fetch('/generate/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetUrl: document.getElementById('targetUrl').value.trim(),
+        tierId: document.getElementById('tierId').value,
+        creatorEmail: document.getElementById('email').value.trim() || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '创建失败');
+    document.getElementById('gateway-id-display').textContent = data.gatewayId;
+    document.getElementById('admin-key-display').textContent = data.adminKey;
+    document.getElementById('proxy-url').textContent = location.origin + '/' + data.gatewayId + '/';
+    document.getElementById('form-card').style.display = 'none';
+    document.getElementById('result-card').style.display = '';
+  } catch (err) {
+    formError.textContent = err.message;
+    formError.style.display = '';
+  } finally {
+    submitBtn.disabled = false;
+    btnText.style.display = '';
+    btnLoading.style.display = 'none';
+  }
+});
+
+function copyText(id, btn) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
+    btn.style.color = '#fff';
+    btn.style.background = 'var(--success)';
+    btn.style.borderColor = 'var(--success)';
+    btn.style.transform = 'scale(1.04)';
+    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; btn.style.background = ''; btn.style.borderColor = ''; btn.style.transform = ''; }, 2000);
+  }).catch(() => {
+    const t = document.createElement('div');
+    t.className = 'toast toast-error';
+    t.textContent = '复制失败';
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 200); }, 3000);
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AI-Pay Hub - 支付</title>
+<meta name="description" content="完成支付。">
+<link rel="stylesheet" href="css/style.css">
+<style>
+.pay-wrap{max-width:400px;margin:4rem auto 2rem;text-align:center;padding:0 1rem}
+.pay-amount{font-size:3rem;font-weight:640;letter-spacing:-0.035em;margin:0.5rem 0;font-variant-numeric:tabular-nums;animation:amount-pop .5s var(--ease-spring) both}
+@keyframes amount-pop{from{opacity:0;transform:scale(0.8)}to{opacity:1;transform:scale(1)}}
+.countdown{font-family:var(--font-mono);font-size:0.9375rem;color:var(--fg-muted);margin-bottom:1.25rem;transition:color .3s,transform .3s}
+.countdown.urgent{color:var(--danger);animation:urgent-pulse .6s ease-in-out infinite}
+@keyframes urgent-pulse{0%,to{opacity:1;transform:scale(1)}50%{opacity:0.7;transform:scale(1.04)}}
+.methods{display:flex;gap:0.75rem;justify-content:center;margin:1.25rem 0}
+.method{border:1.5px solid var(--border);border-radius:var(--radius);padding:0.85rem 1.25rem;cursor:pointer;transition:all .25s var(--ease-spring);background:var(--surface);text-align:center;min-width:90px;position:relative;overflow:hidden}
+.method::after{content:'';position:absolute;inset:0;border-radius:inherit;background:var(--accent);opacity:0;transform:scale(0.6);transition:all .35s var(--ease-out)}
+.method:hover{transform:translateY(-2px)}
+.method:hover,.method.on{border-color:var(--accent)}.method.on{background:var(--accent-dim)}
+.method:active::after{opacity:0.08;transform:scale(2);transition:all .15s ease}
+.method .n{font-weight:590;font-size:0.9375rem;margin-top:0.15rem;position:relative;z-index:1}
+.alert-warn{background:var(--warn-dim);border:1px solid color-mix(in oklch, var(--warn), transparent 70%);border-radius:var(--radius);padding:0.85rem;margin:0.85rem 0;font-size:0.875rem;color:oklch(50% 0.14 80)}
+.icon-ok{margin:1rem auto;width:64px;height:64px;border-radius:50%;background:var(--success-dim);display:flex;align-items:center;justify-content:center;animation:icon-pop .5s var(--ease-spring) both}
+@keyframes icon-pop{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+.icon-ok svg{animation:check-draw .4s .3s var(--ease-out) both;stroke-dasharray:30;stroke-dashoffset:30}
+@keyframes check-draw{to{stroke-dashoffset:0}}
+.big-text{font-size:1.2rem;font-weight:620;margin:0.85rem 0;animation:fade-up .4s .1s var(--ease-out) both}
+@keyframes fade-up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+#pay-view .card,#ok-view .card,#exp-view .card,#err-view .card{animation:card-in .4s var(--ease-spring) both}
+@keyframes card-in{from{opacity:0;transform:translateY(16px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+</style>
+</head>
+<body>
+<main class="pay-wrap">
+  <div id="loading">
+    <div class="card"><div class="skeleton" style="height:3rem;width:60%;margin:0 auto 1rem"></div><p class="text-muted">加载中...</p></div>
+  </div>
+
+  <div id="pay-view" style="display:none">
+    <div class="card">
+      <p class="text-muted" style="font-size:0.8125rem;margin-bottom:0">支付金额</p>
+      <div class="pay-amount" id="amount">¥0.00</div>
+      <div class="countdown" id="timer">--:--</div>
+      <div id="cta-area">
+        <p class="text-muted" style="font-size:0.8125rem;margin-bottom:0.5rem">支付方式</p>
+        <div class="methods"><div class="method on" id="mtd-alipay" onclick="pick('alipay')"><span class="n">支付宝</span></div></div>
+        <button class="btn" onclick="doPay()" style="font-size:1.05rem;padding:0.85rem">立即支付</button>
+        <p style="font-size:0.75rem;color:var(--fg-muted);margin-top:0.65rem">支付完成后自动跳转</p>
+      </div>
+      <div id="polling-msg" style="display:none" class="alert-warn">请在打开的支付页面中完成支付...</div>
+    </div>
+  </div>
+
+  <div id="ok-view" style="display:none">
+    <div class="card">
+      <div class="icon-ok"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="big-text" style="color:var(--success)">支付成功</div>
+      <p class="text-muted">请返回原页面继续获取内容</p>
+      <a href="/" class="btn-small btn-secondary" style="display:inline-block;margin-top:0.85rem;text-decoration:none">返回首页</a>
+    </div>
+  </div>
+
+  <div id="exp-view" style="display:none">
+    <div class="card">
+      <div class="big-text" style="color:var(--danger)">订单已过期</div>
+      <p class="text-muted">支付超时，请重新发起请求</p>
+      <a href="/" class="btn-small btn-secondary" style="display:inline-block;margin-top:0.85rem;text-decoration:none">重新开始</a>
+    </div>
+  </div>
+
+  <div id="err-view" style="display:none">
+    <div class="card"><div class="big-text" style="color:var(--danger)">Error</div><p class="text-muted" id="err-msg"></p></div>
+  </div>
+</main>
+
+<script src="/js/i18n.js"></script>
+<script>
+I18N.init();
+const oid = location.pathname.split('/').filter(Boolean).pop();
+let expires = 0, timer = null, poller = null, method = 'alipay';
+
+async function init(){
+  try{
+    const r = await fetch(`/pay/${oid}/status`);const d = await r.json();
+    if(d.status === 'paid'){show('ok');return}if(d.status === 'expired'){show('exp');return}
+    if(d.status !== 'pending'){showErr(d.status||'unavailable');return}
+    expires = d.expiresAt||Date.now()+300000;
+    document.getElementById('amount').textContent = '¥'+(d.amount/100).toFixed(2);
+    show('pay');
+    tick();timer=setInterval(tick,1000);
+  }catch(e){showErr(e.message)}
+}
+function tick(){
+  const s=Math.max(0,expires-Date.now()),m=Math.floor(s/60000),sec=Math.floor((s%60000)/1000);
+  const el=document.getElementById('timer');el.textContent=m+':'+String(sec).padStart(2,'0');
+  if(s<60000)el.classList.add('urgent');if(s<=0){clearInterval(timer);show('exp')}
+}
+function pick(m){method=m}
+function doPay(){
+  document.getElementById('cta-area').style.display='none';document.getElementById('polling-msg').style.display='';
+  fetch(`/pay/${oid}`).then(r=>r.json()).then(d=>{if(d.x402Url)window.open(d.x402Url,'_blank')}).catch(()=>{});
+  poller=setInterval(async()=>{try{const r=await fetch(`/pay/${oid}/status`);const d=await r.json();if(d.status==='paid'){clearInterval(poller);show('ok')}}catch{}},2000);
+}
+function show(v){
+  ['pay','loading','ok','exp','err'].forEach(x=>{
+    const el=document.getElementById(x==='pay'?'pay-view':x==='loading'?'loading':x==='ok'?'ok-view':x==='exp'?'exp-view':'err-view');
+    if(el)el.style.display='none';
+  });
+  const idMap={pay:'pay-view',loading:'loading',ok:'ok-view',exp:'exp-view',err:'err-view'};
+  const el=document.getElementById(idMap[v]);if(el)el.style.display='';
+  if(v!=='pay'){if(timer)clearInterval(timer);if(poller)clearInterval(poller)}
+}
+function showErr(m){show('err');document.getElementById('err-msg').textContent=m}
+init();
+</script>
+</body>
+</html>
