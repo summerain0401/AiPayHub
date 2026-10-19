@@ -60,13 +60,26 @@ local order_key = KEYS[1]
 local lock_key = KEYS[2]
 local trade_no = ARGV[1]
 local paid_at = ARGV[2]
+local amount = ARGV[3]
 
 local current = redis.call('HGET', order_key, 'status')
+if redis.call('HGET', order_key, 'amount') ~= amount then return 0 end
+if (current == 'PAID' or current == 'PROCESSING') and redis.call('HGET', order_key, 'tradeNo') == trade_no then return 2 end
 if current == 'PENDING' then
-  redis.call('HSET', order_key, 'status', 'PAID', 'paidAt', paid_at, 'tradeNo', trade_no)
+  if tonumber(redis.call('HGET', order_key, 'expiresAt') or '0') <= tonumber(paid_at) then return 0 end
+  redis.call('HSET', order_key, 'status', 'PAID', 'paidAt', paid_at, 'tradeNo', trade_no, 'expiresAt', tonumber(paid_at) + 300000)
   redis.call('PEXPIRE', order_key, 300000)
   if lock_key ~= '' then redis.call('DEL', lock_key) end
   return 1
 end
 return 0
+`;
+
+// Claim before contacting the upstream: concurrent retries can consume only once.
+export const CLAIM_PAID_SCRIPT = `
+if redis.call('HGET', KEYS[1], 'status') ~= 'PAID' then return 0 end
+if redis.call('HGET', KEYS[1], 'gatewayId') ~= ARGV[1] then return 0 end
+if tonumber(redis.call('HGET', KEYS[1], 'expiresAt') or '0') <= tonumber(ARGV[2]) then return 0 end
+redis.call('HSET', KEYS[1], 'status', 'PROCESSING')
+return 1
 `;

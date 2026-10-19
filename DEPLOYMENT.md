@@ -1,54 +1,32 @@
-# AI-Pay Hub — Deployment Guide
+# Local deployment and sandbox evaluation
 
-## Requirements
+This is a prototype. Read [PUBLIC_READINESS.md](docs/PUBLIC_READINESS.md) before exposing it to other users.
 
-- Node.js >= 20 LTS
-- Redis 7
-- pnpm
-- ngrok (for local webhook testing)
+## Configuration
 
-## Environment Variables
+Use Node.js 22, pnpm 10 and Redis 7 or later. Copy `.env.example` to `.env`. Leave payment credentials blank for initial 402-only evaluation. Set `GATEWAY_BASE_URL` to the app origin; it is used to construct links and the callback URL.
 
-```bash
-PORT=3000
-REDIS_URL=redis://your-redis-host:6379
-GATEWAY_BASE_URL=https://your-domain.com
-WEBHOOK_SECRET=<random 32-byte hex>
-ALIPAY_APP_ID=2021xxxxxxxx
-ALIPAY_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
-ALIPAY_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
-ALIPAY_GATEWAY=https://openapi.alipaydev.com/gateway.do
+For Alipay sandbox evaluation, configure `ALIPAY_APP_ID`, `ALIPAY_PRIVATE_KEY`, `ALIPAY_PUBLIC_KEY` and the sandbox `ALIPAY_GATEWAY`. Keep keys in your local environment or secret manager. `WEBHOOK_SECRET` is not used for Alipay notification verification; that path uses the SDK's RSA verification. Price tier service IDs are configuration scaffolding and are not a verified A2A integration.
+
+```sh
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm build
+pnpm start
 ```
 
-## Deploy
+Health endpoint: `GET /ping`. Callback endpoint: `POST /webhook/alipay`. It accepts form-encoded notifications as well as JSON, verifies the signature and application ID, and acknowledges after queue insertion. Only successful trades can be applied, and the integer-cent amount must match the pending order. The SDK creates a WAP checkout URL locally; a successful real or sandbox settlement was not tested in this review.
 
-```bash
-pnpm install && pnpm build && pnpm start
+## Containers
+
+```sh
+cp .env.example .env
+docker compose up --build
 ```
 
-## Health Check
+Compose overrides `REDIS_URL` to `redis://redis:6379`. Redis is bound to host loopback; the app port is 3000. `.dockerignore` excludes local secrets from the build context. The Redis volume uses AOF persistence. Container execution is separate from the local build/test checks; it has not been validated on a Docker daemon in this review.
 
-```
-GET /ping → 200 { "status": "ok" }
-```
+## Before internet deployment
 
-## Webhook URL
+Gateway creation is open and accepts user-supplied upstream URLs. Enforce registration access and an upstream allowlist with network egress restrictions outside the app until SSRF controls are implemented, including DNS rebinding and redirect checks. Restrict the app and Redis to a trusted evaluation environment. The included rate-limit middleware is not attached to all routes. Dashboard credentials currently travel in query parameters and may appear in access logs; do not use real reusable credentials. Add header-only authentication before shared deployment.
 
-Register at Alipay: `{GATEWAY_BASE_URL}/webhook/alipay`
-
-## Redis Persistence
-
-```bash
-redis-cli CONFIG SET appendonly yes
-```
-
-## Error Codes
-
-| Status | Code | Description |
-|--------|------|-------------|
-| 400 | missing_gateway_id | Gateway ID not provided |
-| 401 | invalid_admin_key | Admin key verification failed |
-| 402 | payment_required | Payment needed (returns paymentUrl) |
-| 404 | gateway_not_found | Gateway does not exist |
-| 429 | rate_limit_exceeded | Too many requests |
-| 500 | internal_error | Server error |
+Redis must be dedicated and appropriately protected. Order deletion removes billing history; keep a separate durable ledger before taking real payments. The webhook queue has a crash window between popping an item and recording it as processing, and retry recovery is not a transactional delivery guarantee. Add atomic queue transfer, reconciliation, refund policy, request binding and failure recovery before production use.

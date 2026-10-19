@@ -1,4 +1,4 @@
-import { getRedis, REDIS_PREFIX, MARK_PAID_SCRIPT } from './redis.js';
+import { getRedis, REDIS_PREFIX, MARK_PAID_SCRIPT, CLAIM_PAID_SCRIPT } from './redis.js';
 import { generateOrderId } from '../utils/idgen.js';
 import type { OrderRecord, OrderStatus } from '../types/index.js';
 
@@ -64,8 +64,10 @@ export async function createOrder(
 
 export async function markPaid(
   orderId: string,
-  tradeNo: string
+  tradeNo: string,
+  amount: number
 ): Promise<OrderRecord | null> {
+  if (!tradeNo || !Number.isSafeInteger(amount) || amount <= 0) return null;
   const redis = getRedis();
   const orderKey = `${REDIS_PREFIX.order}:${orderId}`;
   const requestId = await redis.hget(orderKey, 'requestId');
@@ -76,11 +78,17 @@ export async function markPaid(
   const sha = await getMarkPaidSha();
 
   const result = await redis.evalsha(
-    sha, 2, orderKey, requestLockKey, tradeNo, paidAt
+    sha, 2, orderKey, requestLockKey, tradeNo, paidAt, String(amount)
   ) as number;
 
   if (result === 0) return null;
   return getOrder(orderId);
+}
+
+export async function claimPaidOrder(orderId: string, gatewayId: string): Promise<boolean> {
+  return (await getRedis().eval(
+    CLAIM_PAID_SCRIPT, 1, `${REDIS_PREFIX.order}:${orderId}`, gatewayId, String(Date.now())
+  )) === 1;
 }
 
 export async function getOrder(orderId: string): Promise<OrderRecord | null> {

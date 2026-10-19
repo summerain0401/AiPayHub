@@ -68,9 +68,11 @@ export class WebhookQueue {
   }
 
   private async process(item: Item): Promise<void> {
+    if (item.provider !== 'alipay_x402' || item.payload.status !== 'success') return;
     const { markPaid } = await import('../services/order.js');
-    const result = await markPaid(item.payload.orderId, item.payload.tradeNo);
-    if (!result) throw new Error(`markPaid failed: ${item.payload.orderId}`);
+    // Mismatched amounts, expired/missing orders and duplicates are terminal.
+    // Redis/network errors still throw and use the retry/dead-letter path.
+    await markPaid(item.payload.orderId, item.payload.tradeNo, item.payload.amount);
   }
 }
 

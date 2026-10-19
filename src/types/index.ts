@@ -16,7 +16,7 @@ export interface GatewayConfig {
 }
 
 // ---- 订单状态机 ----
-export type OrderStatus = 'PENDING' | 'PAID' | 'DELETED' | 'EXPIRED';
+export type OrderStatus = 'PENDING' | 'PAID' | 'PROCESSING' | 'DELETED' | 'EXPIRED';
 
 export interface OrderRecord {
   orderId: string;
@@ -60,7 +60,7 @@ export interface WebhookResult {
   valid: boolean;
   orderId: string;
   tradeNo: string;
-  amount: number;
+  amount: number;           // integer CNY cents, matching OrderRecord.amount
   status: 'success' | 'fail';
 }
 

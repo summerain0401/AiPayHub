@@ -49,6 +49,7 @@ export const registerPaymentRoutes: FastifyPluginAsync = async (app) => {
       status: order.status.toLowerCase(),
       orderId,
       amount: order.amount,
+      expiresAt: order.expiresAt,
       paidAt: order.paidAt || null,
     });
   });

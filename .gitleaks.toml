@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "aipay-admin-key"
+description = "AI-Pay Hub admin credential"
+regex = '''ask_[A-Za-z0-9_-]{32}'''
+keywords = ["ask_"]
