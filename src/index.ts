@@ -13,11 +13,12 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerGeneratorRoutes } from './routes/generator.js';
 import { registerPaymentRoutes } from './routes/payment.js';
 import { registerOpenapiRoutes } from './routes/openapi.js';
+import { loggerOptions } from './utils/logging.js';
 
 async function main() {
   const config = getConfig();
 
-  const app = Fastify({ logger: { level: 'info' } });
+  const app = Fastify({ logger: loggerOptions });
 
   // ---- CORS ----
   await app.register(cors, { origin: '*' });

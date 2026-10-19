@@ -1,8 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { createGateway, validateAccess, updateGateway, deleteGateway } from '../services/auth.js';
+import { createGateway, updateGateway, deleteGateway, rotateAdminKey } from '../services/auth.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getTiers } from '../services/tier.js';
-import { getRedis } from '../services/redis.js';
 import type { CreateGatewayRequest } from '../types/index.js';
 
 const MAX_AMOUNT_CENTS = 2000; // 最高 ¥20.00
@@ -36,32 +35,23 @@ export const registerGeneratorRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** POST /validate */
-  app.post('/validate', async (request, reply) => {
-    const body = request.body as { gatewayId: string; adminKey: string };
-    if (!body.gatewayId || !body.adminKey) {
-      return reply.status(400).send({ error: 'missing gatewayId or adminKey' });
-    }
-
-    // Brute-force protection: max 5 attempts per IP per gateway per 10 minutes
-    const ip = request.ip || 'unknown';
-    const attemptKey = `ai-pay:auth-attempts:${body.gatewayId}:${ip}`;
-    const redis = getRedis();
-    const attempts = await redis.incr(attemptKey);
-    if (attempts === 1) await redis.expire(attemptKey, 600);
-    if (attempts > 5) {
-      return reply.status(429).send({ error: 'too_many_attempts', retryAfter: 600 });
-    }
-
-    const { valid, gateway } = await validateAccess(body.gatewayId, body.adminKey);
-    if (valid) await redis.del(attemptKey); // reset on success
+  app.post('/validate', { preHandler: requireAdmin() }, async (request, reply) => {
+    const gateway = request.gatewayConfig;
     return reply.send({
-      valid,
+      valid: true,
       gateway: gateway ? {
         gatewayId: gateway.gatewayId, targetUrl: gateway.targetUrl,
         tierId: gateway.tierId, price: gateway.price,
         enabled: gateway.enabled, createdAt: gateway.createdAt,
       } : null,
     });
+  });
+
+  app.post('/rotate-key', { preHandler: requireAdmin() }, async (request, reply) => {
+    const gatewayId = request.gatewayConfig!.gatewayId;
+    const nextKey = await rotateAdminKey(gatewayId, request.headers['admin-secret-key'] as string);
+    if (!nextKey) return reply.status(409).send({ error: 'credential_changed_retry_login' });
+    return reply.send({ gatewayId, adminKey: nextKey });
   });
 
   /** POST /update */

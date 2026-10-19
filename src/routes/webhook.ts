@@ -1,18 +1,30 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { getPaymentProvider } from '../services/payment.js';
-import { markPaid } from '../services/order.js';
 import { getWebhookQueue } from '../utils/queue.js';
 
 // ============================================
 // Webhook 回调路由
 // ============================================
 export const registerWebhookRoutes: FastifyPluginAsync = async (app) => {
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_request, body, done) => {
+    const params = new URLSearchParams(body as string);
+    const payload: Record<string, string> = {};
+    for (const [key, value] of params) {
+      if (Object.hasOwn(payload, key)) return done(new Error('duplicate notification field'));
+      payload[key] = value;
+    }
+    done(null, payload);
+  });
   /**
    * POST /webhook/alipay
    * 支付宝异步通知
    */
   app.post('/alipay', async (request, reply) => {
     const payload = request.body as Record<string, string>;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+      || Object.values(payload).some((value) => typeof value !== 'string')) {
+      return reply.status(400).send({ error: 'invalid_payload' });
+    }
     const provider = getPaymentProvider('alipay_x402');
     if (!provider) {
       return reply.status(500).send({ error: 'no_payment_provider' });
@@ -24,8 +36,10 @@ export const registerWebhookRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(400).send({ error: 'invalid_signature' });
     }
 
-    // 入队异步处理
-    getWebhookQueue().enqueue(
+    if (result.status !== 'success') return reply.send('success');
+
+    // Acknowledge only after Redis has accepted the notification.
+    await getWebhookQueue().enqueue(
       {
         orderId: result.orderId,
         tradeNo: result.tradeNo,
@@ -40,30 +54,6 @@ export const registerWebhookRoutes: FastifyPluginAsync = async (app) => {
     return reply.send('success');
   });
 
-  /**
-   * POST /webhook/test
-   * 测试用: 手动触发订单标记为已支付
-   */
-  app.post('/test', async (request, reply) => {
-    const body = request.body as { orderId: string; tradeNo?: string };
-    if (!body.orderId) {
-      return reply.status(400).send({ error: 'missing orderId' });
-    }
-
-    const result = await markPaid(
-      body.orderId,
-      body.tradeNo || 'test_trade_' + Date.now()
-    );
-
-    if (!result) {
-      return reply.status(400).send({
-        error: 'mark_paid_failed',
-        message: 'Order not in PENDING status or not found',
-      });
-    }
-
-    return reply.send({ success: true, order: result });
-  });
 };
 
 // ============================================

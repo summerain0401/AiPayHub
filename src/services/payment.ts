@@ -9,10 +9,12 @@ const AlipaySdk: any = require('alipay-sdk').AlipaySdk;
 function getClient() {
   const c = getConfig();
   if (!c.alipay.appId) return null;
+  const privateKey = c.alipay.privateKey.replace(/\\n/g, '\n');
   return new AlipaySdk({
     appId: c.alipay.appId,
-    privateKey: c.alipay.privateKey,
-    alipayPublicKey: c.alipay.publicKey,
+    privateKey,
+    keyType: privateKey.includes('BEGIN PRIVATE KEY') ? 'PKCS8' : 'PKCS1',
+    alipayPublicKey: c.alipay.publicKey.replace(/\\n/g, '\n'),
     gateway: c.alipay.gateway,
     signType: 'RSA2',
   });
@@ -23,11 +25,10 @@ export class AlipayX402Provider implements PaymentProvider {
 
   async createPayment(req: PaymentRequest): Promise<PaymentResult> {
     const config = getConfig();
-    const client = getClient();
-    if (!client) return { success: false, errorMessage: 'Alipay not configured' };
-
     try {
-      const result = await client.exec('alipay.trade.wap.pay', {
+      const client = getClient();
+      if (!client) return { success: false, errorMessage: 'Alipay not configured' };
+      const result = client.pageExec('alipay.trade.wap.pay', 'GET', {
         bizContent: {
           outTradeNo: req.orderId,
           totalAmount: (req.amount / 100).toFixed(2),
@@ -44,19 +45,26 @@ export class AlipayX402Provider implements PaymentProvider {
   }
 
   async verifyWebhook(payload: Record<string, string>): Promise<WebhookResult> {
-    const client = getClient();
     let valid = false;
-    if (client) {
-      try { valid = client.checkNotifySign(payload); } catch { valid = false; }
-    }
+    try { valid = getClient()?.checkNotifySign(payload, true) ?? false; } catch { valid = false; }
     return {
-      valid,
+      valid: valid && payload['app_id'] === getConfig().alipay.appId
+        && !!payload['out_trade_no'] && !!payload['trade_no']
+        && parseCnyCents(payload['total_amount']) !== null,
       orderId: payload['out_trade_no'] || '',
       tradeNo: payload['trade_no'] || '',
-      amount: Number(payload['total_amount'] || '0'),
-      status: payload['trade_status'] === 'TRADE_SUCCESS' ? 'success' : 'fail',
+      amount: parseCnyCents(payload['total_amount']) ?? 0,
+      status: ['TRADE_SUCCESS', 'TRADE_FINISHED'].includes(payload['trade_status']) ? 'success' : 'fail',
     };
   }
+}
+
+/** Parse provider decimal yuan without accepting exponents, negatives or fractions of a cent. */
+export function parseCnyCents(value: string | undefined): number | null {
+  if (!value || !/^\d+(\.\d{1,2})?$/.test(value)) return null;
+  const [yuan, fraction = ''] = value.split('.');
+  const cents = Number(yuan) * 100 + Number(fraction.padEnd(2, '0'));
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
 }
 
 const providers = new Map<string, PaymentProvider>();

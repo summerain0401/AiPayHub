@@ -9,6 +9,9 @@ export const registerPaymentRoutes: FastifyPluginAsync = async (app) => {
     const accept = (request.headers['accept'] || '') as string;
 
     const order = await getOrder(orderId);
+    if (order && !order.requestHash) {
+      return reply.status(409).send({ error: 'legacy_order_requires_reconciliation' });
+    }
 
     // Browser → HTML payment page
     if (accept.includes('text/html')) {
@@ -49,6 +52,7 @@ export const registerPaymentRoutes: FastifyPluginAsync = async (app) => {
       status: order.status.toLowerCase(),
       orderId,
       amount: order.amount,
+      expiresAt: order.expiresAt,
       paidAt: order.paidAt || null,
     });
   });

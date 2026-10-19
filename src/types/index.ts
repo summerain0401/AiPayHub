@@ -16,12 +16,13 @@ export interface GatewayConfig {
 }
 
 // ---- 订单状态机 ----
-export type OrderStatus = 'PENDING' | 'PAID' | 'DELETED' | 'EXPIRED';
+export type OrderStatus = 'PENDING' | 'PAID' | 'PROCESSING' | 'DELETED' | 'EXPIRED';
 
 export interface OrderRecord {
   orderId: string;
   gatewayId: string;
   requestId: string;
+  requestHash: string;      // digest of the exact bound upstream operation
   status: OrderStatus;
   amount: number;           // 单位: 分
   paymentMethod: 'alipay' | 'wechat';
@@ -60,7 +61,7 @@ export interface WebhookResult {
   valid: boolean;
   orderId: string;
   tradeNo: string;
-  amount: number;
+  amount: number;           // integer CNY cents, matching OrderRecord.amount
   status: 'success' | 'fail';
 }
 

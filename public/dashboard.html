@@ -135,7 +135,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   aKey = document.getElementById('adminKey').value.trim();
   btn.disabled = true; btnText.style.display = 'none'; btnLoad.style.display = ''; errEl.style.display = 'none';
   try {
-    const res = await fetch('/generate/validate', { method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gatewayId:gwId,adminKey:aKey}) });
+    const res = await fetch('/generate/validate', { method:'POST',headers:{'Content-Type':'application/json','Admin-Secret-Key':aKey},body:JSON.stringify({gatewayId:gwId}) });
     const d = await res.json();
     if (!d.valid) throw new Error('验证失败，请检查网关 ID 和管理密钥。');
     gwEnabled = d.gateway.enabled; updateStatusBadge();
@@ -148,7 +148,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 });
 
 async function loadGatewayInfo() {
-  try { const res = await fetch(`/dash/gateway?gatewayId=${gwId}&adminKey=${aKey}`); const d = await res.json();
+  try { const res = await fetch(`/dash/gateway?gatewayId=${gwId}`,{headers:{'Admin-Secret-Key':aKey}}); const d = await res.json();
     document.getElementById('gw-target').textContent = d.targetUrl;
     document.getElementById('gw-price').textContent = 'CNY ' + d.price.toFixed(2); } catch {}
 }
@@ -156,19 +156,19 @@ async function loadGatewayInfo() {
 async function loadData() {
   document.getElementById('orders-error').style.display = 'none';
   try {
-    const s = await (await fetch(`/dash/stats?gatewayId=${gwId}&adminKey=${aKey}`)).json();
+    const s = await (await fetch(`/dash/stats?gatewayId=${gwId}`,{headers:{'Admin-Secret-Key':aKey}})).json();
     countUp(document.getElementById('total-revenue'), s.totalRevenue/100, 'CNY ');
     countUp(document.getElementById('paid-count'), s.paidOrders, '');
     countUp(document.getElementById('pending-count'), s.pendingOrders, '');
     countUp(document.getElementById('total-count'), s.totalOrders, '');
-    const { orders } = await (await fetch(`/dash/orders?gatewayId=${gwId}&adminKey=${aKey}&limit=50`)).json();
+    const { orders } = await (await fetch(`/dash/orders?gatewayId=${gwId}&limit=50`,{headers:{'Admin-Secret-Key':aKey}})).json();
     renderOrders(orders);
   } catch { document.getElementById('orders-loading').style.display = 'none'; document.getElementById('orders-error').style.display = ''; }
 }
 
 async function toggleGateway() {
   const btn = document.getElementById('toggle-btn'); btn.disabled = true;
-  try { const r = await fetch('/generate/update',{method:'POST',headers:{'Content-Type':'application/json','Admin-Secret-Key':aKey},body:JSON.stringify({gatewayId:gwId,enabled:!gwEnabled})}); const d = await r.json(); gwEnabled = d.enabled; updateStatusBadge(); showToast(gwEnabled?'已启用':'已停用','success'); }
+  try { const r = await fetch('/generate/update',{method:'POST',headers:{'Content-Type':'application/json','Admin-Secret-Key':aKey},body:JSON.stringify({gatewayId:gwId,enabled:!gwEnabled})}); const d = await r.json(); if(!r.ok) throw new Error(d.error||'操作失败'); gwEnabled = d.enabled; updateStatusBadge(); showToast(gwEnabled?'已启用':'已停用','success'); }
   catch { showToast('操作失败','error'); } finally { btn.disabled = false; }
 }
 

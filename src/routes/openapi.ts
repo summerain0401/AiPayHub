@@ -25,7 +25,7 @@ export const registerOpenapiRoutes: FastifyPluginAsync = async (app) => {
       openapi: '3.0.1',
       info: {
         title: `AI-Pay Hub Gateway — ${gatewayId}`,
-        description: 'AI micro-payment gateway. First call returns HTTP 402; retry after payment with X-Order-Id header.',
+        description: 'AI micro-payment gateway. First call returns HTTP 402; retry the same operation after payment with X-Order-Id header.',
         version: '1.0.0',
       },
       servers: [{ url: baseUrl }],
@@ -33,7 +33,7 @@ export const registerOpenapiRoutes: FastifyPluginAsync = async (app) => {
         '/{proxyPath}': {
           post: {
             summary: 'Proxy request (with payment gate)',
-            description: `Send a request through the AI-Pay Hub payment gateway. First call returns 402 with paymentUrl. After paying, retry with X-Order-Id header.\n\nPrice: ¥${(gwConfig.price / 100).toFixed(2)} per call`,
+            description: `Send a request through the AI-Pay Hub payment gateway. First call returns 402 with paymentUrl. After paying, retry the same method, path/query, application headers and body with X-Order-Id header.\n\nPrice: ¥${(gwConfig.price / 100).toFixed(2)} per call`,
             parameters: [
               {
                 name: 'proxyPath',
@@ -68,6 +68,7 @@ export const registerOpenapiRoutes: FastifyPluginAsync = async (app) => {
             responses: {
               '200': { description: 'Payment done — upstream response proxied' },
               '402': { description: 'Payment required — open paymentUrl to pay, then retry with X-Order-Id header' },
+              '409': { description: 'Request does not match its order, or the order was already consumed' },
               '429': { description: 'Request already processing — wait and retry' },
             },
           },

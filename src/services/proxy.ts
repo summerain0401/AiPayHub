@@ -64,8 +64,11 @@ export function getSuspendedCount(): number {
 /** 构建上游 URL: 去掉 gatewayId 前缀 */
 export function buildUpstreamUrl(targetUrl: string, path: string): string {
   const base = targetUrl.replace(/\/$/, '');
-  const segments = path.split('/').filter(Boolean);
-  const upstreamPath = '/' + segments.slice(1).join('/');
+  const slash = path.indexOf('/', 1);
+  const query = path.indexOf('?');
+  const upstreamPath = slash >= 0 && (query < 0 || slash < query)
+    ? path.slice(slash)
+    : '/' + (query >= 0 ? path.slice(query) : '');
   return base + upstreamPath;
 }
 
