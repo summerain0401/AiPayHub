@@ -25,7 +25,7 @@ For a read-only initial payment challenge, see [the local walkthrough](examples/
 1. `POST /generate/create` stores an upstream URL and fixed price tier; returns a public gateway ID and a one-time admin key.
 2. A request to `/{gatewayId}/*` without `X-Order-Id` creates a five-minute pending order and returns 402 with `orderId`, `paymentUrl` and amount in integer CNY cents.
 3. `/pay/{orderId}` builds a signed Alipay WAP checkout URL. A verified success notification is queued, then the order is marked paid only if the app, amount and validity checks pass.
-4. The client retries with `X-Order-Id`. Redis atomically claims a paid order for that gateway before upstream dispatch. Only one concurrent retry wins. The response can stream; the order is removed when the stream ends or fails.
+4. The client retries the same method, destination, forwarded headers and body with `X-Order-Id`. JSON object key ordering is normalized. The order stores a digest of that operation; a changed request returns 409 without consuming it. Redis atomically checks that binding and claims a paid order for that gateway before upstream dispatch. Only one concurrent retry wins. The response can stream; the order is removed when the stream ends or fails.
 
 Claiming grants one dispatch attempt, not guaranteed successful delivery. An upstream failure can consume a payment; refunds and durable delivery receipts are not implemented. Dashboard statistics cover retained orders, not an accounting ledger.
 
@@ -57,12 +57,14 @@ pnpm test
 TEST_REDIS_URL=redis://127.0.0.1:16389/0 pnpm test
 ```
 
-The Redis suite imports production order services and exercises the actual gateway route with an in-memory upstream response. It checks amount mismatches, late notifications, idempotency, gateway binding and concurrent redemption. It does not perform a real Alipay transaction. [docs/ci-template.yml](docs/ci-template.yml) can be installed as `.github/workflows/ci.yml` by an account with workflow write permission; it was not enabled by this PR. See [security and release status](docs/PUBLIC_READINESS.md) for limitations and remaining release gates.
+The Redis suite imports production order services and exercises the actual gateway route with an in-memory upstream response. It checks amount mismatches, late notifications, idempotency, gateway binding and concurrent redemption. Request binding, concurrent order creation and cleanup are also checked through production services. It does not perform a real Alipay transaction. [docs/ci-template.yml](docs/ci-template.yml) can be installed as `.github/workflows/ci.yml` by an account with workflow write permission; it was not enabled by this PR. See [security and release status](docs/PUBLIC_READINESS.md) for limitations and remaining release gates.
 
 ## License and contributions
 
-The previous README labelled this project MIT, but the audited commit contained no LICENSE file. This change does not grant a new license. The owner must confirm the intended grant and third-party redistribution terms before an open-source release. See [RIGHTS.md](docs/RIGHTS.md).
+The owner selected the [MIT License](LICENSE) for original project software and documentation. See [LICENSE-SCOPE.md](LICENSE-SCOPE.md) for third-party exclusions and [RIGHTS.md](docs/RIGHTS.md) for provenance notes.
 
 Administrator calls use `Admin-Secret-Key` exclusively; putting it in the URL or JSON body is rejected. Disabled gateways remain administrable so they can be re-enabled. Rotation and migration examples are in [examples/admin-access.md](examples/admin-access.md).
 
 For code discussion, use this repository's issues or pull requests. Never attach payment keys or admin credentials.
+
+Request retry and order-format migration details: [examples/payment-retry.md](examples/payment-retry.md).

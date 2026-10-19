@@ -7,6 +7,7 @@ import { buildUpstreamUrl, buildPaymentUrl } from '../services/proxy.js';
 import { generateRequestId } from '../utils/idgen.js';
 import type { GatewayConfig, GatewayProxyResponse } from '../types/index.js';
 import axios from 'axios';
+import { requestFingerprint, filterUpstreamHeaders } from '../services/request-binding.js';
 
 // ============================================
 // 核心网关代理路由
@@ -40,6 +41,8 @@ export const registerGatewayRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(403).send({ error: 'gateway_disabled' } as GatewayProxyResponse);
       }
 
+      const binding = requestFingerprint(request, gwConfig.targetUrl);
+
       // 2. 如果携带了 X-Order-Id (已支付重试)
       if (orderId) {
         const order = await getOrder(orderId);
@@ -53,6 +56,10 @@ export const registerGatewayRoutes: FastifyPluginAsync = async (app) => {
             } as GatewayProxyResponse);
         }
 
+        if (order.gatewayId !== gatewayId || !order.requestHash || order.requestHash !== binding) {
+          return reply.status(409).send({ error: 'order_request_mismatch' });
+        }
+
         if (order.status === 'PENDING') {
           return reply.status(402)
             .header('Payment-Needed', buildPaymentUrl(orderId))
@@ -64,7 +71,7 @@ export const registerGatewayRoutes: FastifyPluginAsync = async (app) => {
         }
 
         if (order.status === 'PAID' && order.gatewayId === gatewayId) {
-          if (!await claimPaidOrder(orderId, gatewayId)) {
+          if (!await claimPaidOrder(orderId, gatewayId, binding)) {
             return reply.status(409).send({ error: 'order_already_consumed_or_expired' });
           }
           // 3. 已支付 — 转发到上游
@@ -81,7 +88,7 @@ export const registerGatewayRoutes: FastifyPluginAsync = async (app) => {
 
       // 4. 无 X-Order-Id — 创建订单并返回 402
       try {
-        const order = await createOrder(gatewayId, requestId, gwConfig.price);
+        const order = await createOrder(gatewayId, requestId, gwConfig.price, binding);
         const paymentUrl = buildPaymentUrl(order.orderId);
 
         // 内容锁: 如果客户端 Accept text/markdown，返回 Markdown 付款提示
@@ -152,10 +159,10 @@ async function forwardToUpstream(
       method: request.method as string,
       url: upstreamUrl,
       headers: {
-        ...filterHeaders(request.headers),
+        ...filterUpstreamHeaders(request.headers),
         host: new URL(upstreamUrl).host,
       },
-      data: request.body || undefined,
+      data: request.body ?? undefined,
       responseType: 'stream',
       validateStatus: () => true,
     });
@@ -193,21 +200,6 @@ async function forwardToUpstream(
     }
     throw err;
   }
-}
-
-/** 过滤掉不应转发的请求头 */
-function filterHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
-  const filtered: Record<string, string> = {};
-  const skip = new Set([
-    'host', 'connection', 'x-order-id', 'x-request-id',
-    'admin-secret-key', 'content-length',
-  ]);
-  for (const [k, v] of Object.entries(headers)) {
-    if (!skip.has(k.toLowerCase()) && typeof v === 'string') {
-      filtered[k] = v;
-    }
-  }
-  return filtered;
 }
 
 /** 生成 Markdown 付款提示 (动态内容锁) */

@@ -1,4 +1,4 @@
-import { getRedis, REDIS_PREFIX, MARK_PAID_SCRIPT, CLAIM_PAID_SCRIPT } from './redis.js';
+import { getRedis, REDIS_PREFIX, MARK_PAID_SCRIPT, CLAIM_PAID_SCRIPT, CREATE_ORDER_SCRIPT, DELETE_ORDER_SCRIPT, EXPIRE_ORDER_SCRIPT } from './redis.js';
 import { generateOrderId } from '../utils/idgen.js';
 import type { OrderRecord, OrderStatus } from '../types/index.js';
 
@@ -21,22 +21,21 @@ export async function createOrder(
   gatewayId: string,
   requestId: string,
   amount: number,
+  requestHash: string,
   method: 'alipay' | 'wechat' = 'alipay'
 ): Promise<OrderRecord> {
+  if (!/^[a-f0-9]{64}$/.test(requestHash)) throw new Error('REQUEST_BINDING_REQUIRED');
   const redis = getRedis();
   const orderId = generateOrderId();
   const now = Date.now();
 
-  // 检查请求锁
-  const lockKey = `${REDIS_PREFIX.requestLock}:${requestId}`;
-  if (await redis.exists(lockKey)) {
-    throw new Error('REQUEST_LOCKED: duplicate request');
-  }
+  const lockKey = requestLockKey(gatewayId, requestId);
 
   const order: OrderRecord = {
     orderId,
     gatewayId,
     requestId,
+    requestHash,
     status: 'PENDING',
     amount,
     paymentMethod: method,
@@ -45,19 +44,13 @@ export async function createOrder(
   };
 
   const orderKey = `${REDIS_PREFIX.order}:${orderId}`;
-  const pipe = redis.pipeline();
-  pipe.hset(orderKey, {
-    orderId, gatewayId, requestId,
-    status: 'PENDING',
-    amount: String(amount),
-    paymentMethod: method,
-    createdAt: String(now),
-    expiresAt: String(order.expiresAt),
-  });
-  pipe.expire(orderKey, ORDER_TTL_SECONDS + 60);
-  pipe.sadd(`${REDIS_PREFIX.gatewayOrders}:${gatewayId}`, orderId);
-  pipe.setex(lockKey, ORDER_TTL_SECONDS, orderId);
-  await pipe.exec();
+  const result = await redis.eval(CREATE_ORDER_SCRIPT, 3,
+    orderKey, lockKey, `${REDIS_PREFIX.gatewayOrders}:${gatewayId}`, JSON.stringify({
+      orderId, gatewayId, requestId, requestHash,
+      status: 'PENDING', amount: String(amount), paymentMethod: method,
+      createdAt: String(now), expiresAt: String(order.expiresAt),
+    }));
+  if (result !== 1) throw new Error('REQUEST_LOCKED: duplicate request');
 
   return order;
 }
@@ -70,24 +63,22 @@ export async function markPaid(
   if (!tradeNo || !Number.isSafeInteger(amount) || amount <= 0) return null;
   const redis = getRedis();
   const orderKey = `${REDIS_PREFIX.order}:${orderId}`;
-  const requestId = await redis.hget(orderKey, 'requestId');
-  const requestLockKey = requestId
-    ? `${REDIS_PREFIX.requestLock}:${requestId}`
-    : `${REDIS_PREFIX.requestLock}:${orderId}`;
+  const [requestId, gatewayId] = await redis.hmget(orderKey, 'requestId', 'gatewayId');
+  const lockKey = requestLockKey(gatewayId || '', requestId || '');
   const paidAt = String(Date.now());
   const sha = await getMarkPaidSha();
 
   const result = await redis.evalsha(
-    sha, 2, orderKey, requestLockKey, tradeNo, paidAt, String(amount)
+    sha, 2, orderKey, lockKey, tradeNo, paidAt, String(amount)
   ) as number;
 
   if (result === 0) return null;
   return getOrder(orderId);
 }
 
-export async function claimPaidOrder(orderId: string, gatewayId: string): Promise<boolean> {
+export async function claimPaidOrder(orderId: string, gatewayId: string, requestHash: string): Promise<boolean> {
   return (await getRedis().eval(
-    CLAIM_PAID_SCRIPT, 1, `${REDIS_PREFIX.order}:${orderId}`, gatewayId, String(Date.now())
+    CLAIM_PAID_SCRIPT, 1, `${REDIS_PREFIX.order}:${orderId}`, gatewayId, String(Date.now()), requestHash
   )) === 1;
 }
 
@@ -101,17 +92,13 @@ export async function deleteOrder(orderId: string): Promise<void> {
   const redis = getRedis();
   const orderKey = `${REDIS_PREFIX.order}:${orderId}`;
   const raw = await redis.hgetall(orderKey);
-  if (raw?.requestId) {
-    await redis.del(`${REDIS_PREFIX.requestLock}:${raw.requestId}`);
-  }
-  if (raw?.gatewayId) {
-    await redis.srem(`${REDIS_PREFIX.gatewayOrders}:${raw.gatewayId}`, orderId);
-  }
-  await redis.del(orderKey);
+  await redis.eval(DELETE_ORDER_SCRIPT, 3, orderKey,
+    requestLockKey(raw?.gatewayId || '', raw?.requestId || ''),
+    `${REDIS_PREFIX.gatewayOrders}:${raw?.gatewayId || ''}`);
 }
 
-export async function isRequestLocked(requestId: string): Promise<boolean> {
-  return (await getRedis().exists(`${REDIS_PREFIX.requestLock}:${requestId}`)) === 1;
+export async function isRequestLocked(gatewayId: string, requestId: string): Promise<boolean> {
+  return (await getRedis().exists(requestLockKey(gatewayId, requestId))) === 1;
 }
 
 export async function expirePendingOrders(): Promise<number> {
@@ -127,15 +114,12 @@ export async function expirePendingOrders(): Promise<number> {
     cursor = newCursor;
 
     for (const key of keys) {
-      const [status, expiresAt, requestId] = await redis.hmget(
-        key, 'status', 'expiresAt', 'requestId'
+      const [status, expiresAt, requestId, gatewayId] = await redis.hmget(
+        key, 'status', 'expiresAt', 'requestId', 'gatewayId'
       );
       if (status === 'PENDING' && expiresAt && Number(expiresAt) < now) {
-        await redis.hset(key, 'status', 'EXPIRED');
-        if (requestId) {
-          await redis.del(`${REDIS_PREFIX.requestLock}:${requestId}`);
-        }
-        count++;
+        count += await redis.eval(EXPIRE_ORDER_SCRIPT, 2, key,
+          requestLockKey(gatewayId || '', requestId || ''), String(now)) as number;
       }
     }
   } while (cursor !== '0');
@@ -179,6 +163,7 @@ function deserialize(raw: Record<string, string>): OrderRecord {
     orderId: raw.orderId,
     gatewayId: raw.gatewayId,
     requestId: raw.requestId,
+    requestHash: raw.requestHash || '',
     status: raw.status as OrderStatus,
     amount: Number(raw.amount),
     paymentMethod: (raw.paymentMethod as 'alipay' | 'wechat') || 'alipay',
@@ -187,4 +172,8 @@ function deserialize(raw: Record<string, string>): OrderRecord {
     paidAt: raw.paidAt ? Number(raw.paidAt) : undefined,
     expiresAt: Number(raw.expiresAt),
   };
+}
+
+function requestLockKey(gatewayId: string, requestId: string): string {
+  return `${REDIS_PREFIX.requestLock}:${gatewayId}:${requestId}`;
 }

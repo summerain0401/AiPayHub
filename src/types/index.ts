@@ -22,6 +22,7 @@ export interface OrderRecord {
   orderId: string;
   gatewayId: string;
   requestId: string;
+  requestHash: string;      // digest of the exact bound upstream operation
   status: OrderStatus;
   amount: number;           // 单位: 分
   paymentMethod: 'alipay' | 'wechat';
