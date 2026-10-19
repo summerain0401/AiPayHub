@@ -40,7 +40,8 @@ Claiming grants one dispatch attempt, not guaranteed successful delivery. An ups
 | GET | `/pay/{orderId}` | HTML checkout page, or JSON when HTML is not requested |
 | GET | `/pay/{orderId}/status` or `/poll/{orderId}` | Order status |
 | POST | `/webhook/alipay` | Signed JSON or form notification |
-| GET | `/dash/stats`, `/dash/orders`, `/dash/gateway` | Dashboard; requires gateway ID and admin key |
+| GET | `/dash/stats`, `/dash/orders`, `/dash/gateway` | Dashboard; gateway ID query and `Admin-Secret-Key` header |
+| POST | `/generate/rotate-key` | Replace the gateway admin key; returns it once and invalidates the old key |
 | GET | `/schema/{gatewayId}/openapi.json` | Generated schema |
 
 `/webhook/test` is intentionally absent. Examples must not create a public payment bypass.
@@ -61,5 +62,7 @@ The Redis suite imports production order services and exercises the actual gatew
 ## License and contributions
 
 The previous README labelled this project MIT, but the audited commit contained no LICENSE file. This change does not grant a new license. The owner must confirm the intended grant and third-party redistribution terms before an open-source release. See [RIGHTS.md](docs/RIGHTS.md).
+
+Administrator calls use `Admin-Secret-Key` exclusively; putting it in the URL or JSON body is rejected. Disabled gateways remain administrable so they can be re-enabled. Rotation and migration examples are in [examples/admin-access.md](examples/admin-access.md).
 
 For code discussion, use this repository's issues or pull requests. Never attach payment keys or admin credentials.

@@ -2,6 +2,7 @@ import { getRedis, REDIS_PREFIX } from './redis.js';
 import { generateGatewayId, generateAdminKey } from '../utils/idgen.js';
 import { sha256Hash, generateSalt } from '../utils/crypto.js';
 import { getTierById } from './tier.js';
+import { timingSafeEqual } from 'node:crypto';
 import type { GatewayConfig, CreateGatewayRequest, CreateGatewayResponse } from '../types/index.js';
 
 // ============================================
@@ -63,23 +64,36 @@ export async function createGateway(
 /** 验证访问 */
 export async function validateAccess(
   gatewayId: string,
-  adminKey?: string
+  adminKey: string
 ): Promise<{ valid: boolean; gateway: GatewayConfig | null }> {
   const config = await getGatewayConfig(gatewayId);
-  if (!config || !config.enabled) {
+  if (!config || !adminKey) {
     return { valid: false, gateway: config };
-  }
-
-  if (!adminKey) {
-    return { valid: true, gateway: config };
   }
 
   const [salt, storedHash] = config.adminKeyHash.split(':');
   const providedHash = sha256Hash(adminKey, salt);
+  const expected = Buffer.from(storedHash || '', 'hex');
+  const actual = Buffer.from(providedHash, 'hex');
   return {
-    valid: providedHash === storedHash,
+    valid: expected.length === actual.length && timingSafeEqual(expected, actual),
     gateway: config,
   };
+}
+
+/** Compare-and-swap so a racing rotation cannot reuse an already replaced key. */
+export async function rotateAdminKey(gatewayId: string, currentKey: string): Promise<string | null> {
+  const { valid, gateway } = await validateAccess(gatewayId, currentKey);
+  if (!valid || !gateway) return null;
+  const nextKey = generateAdminKey();
+  const salt = generateSalt();
+  const nextHash = `${salt}:${sha256Hash(nextKey, salt)}`;
+  const changed = await getRedis().eval(`
+    if redis.call('HGET', KEYS[1], 'adminKeyHash') ~= ARGV[1] then return 0 end
+    redis.call('HSET', KEYS[1], 'adminKeyHash', ARGV[2])
+    return 1
+  `, 1, `${REDIS_PREFIX.gateway}:${gatewayId}`, gateway.adminKeyHash, nextHash);
+  return changed === 1 ? nextKey : null;
 }
 
 /** 获取网关配置 */

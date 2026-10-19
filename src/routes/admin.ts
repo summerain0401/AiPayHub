@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { getGatewayConfig, validateAccess } from '../services/auth.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { listOrdersByGateway } from '../services/order.js';
 import type { DashboardStats, OrderListResponse } from '../types/index.js';
 
@@ -7,21 +7,13 @@ import type { DashboardStats, OrderListResponse } from '../types/index.js';
 // 管理看板 API
 // ============================================
 export const registerAdminRoutes: FastifyPluginAsync = async (app) => {
+  app.addHook('preHandler', requireAdmin());
   /**
    * GET /dash/stats
-   * 仪表盘统计 (需要 gatewayId + adminKey query params)
+   * 仪表盘统计 (需要 gatewayId query + Admin-Secret-Key header)
    */
   app.get('/stats', async (request, reply) => {
-    const { gatewayId, adminKey } = request.query as Record<string, string>;
-    if (!gatewayId || !adminKey) {
-      return reply.status(400).send({ error: 'missing gatewayId or adminKey' });
-    }
-
-    const { valid } = await validateAccess(gatewayId, adminKey);
-    if (!valid) {
-      return reply.status(401).send({ error: 'invalid_admin_key' });
-    }
-
+    const gatewayId = request.gatewayConfig!.gatewayId;
     const { orders, total } = await listOrdersByGateway(gatewayId, 1000, 0);
 
     const stats: DashboardStats = {
@@ -41,16 +33,8 @@ export const registerAdminRoutes: FastifyPluginAsync = async (app) => {
    * 订单列表
    */
   app.get('/orders', async (request, reply) => {
-    const { gatewayId, adminKey, limit, offset } = request.query as Record<string, string>;
-    if (!gatewayId || !adminKey) {
-      return reply.status(400).send({ error: 'missing gatewayId or adminKey' });
-    }
-
-    const { valid } = await validateAccess(gatewayId, adminKey);
-    if (!valid) {
-      return reply.status(401).send({ error: 'invalid_admin_key' });
-    }
-
+    const gatewayId = request.gatewayConfig!.gatewayId;
+    const { limit, offset } = request.query as Record<string, string>;
     const result = await listOrdersByGateway(
       gatewayId,
       limit ? parseInt(limit, 10) : 50,
@@ -70,16 +54,7 @@ export const registerAdminRoutes: FastifyPluginAsync = async (app) => {
    * 获取网关信息
    */
   app.get('/gateway', async (request, reply) => {
-    const { gatewayId, adminKey } = request.query as Record<string, string>;
-    if (!gatewayId || !adminKey) {
-      return reply.status(400).send({ error: 'missing gatewayId or adminKey' });
-    }
-
-    const { valid, gateway } = await validateAccess(gatewayId, adminKey);
-    if (!valid || !gateway) {
-      return reply.status(401).send({ error: 'invalid_admin_key' });
-    }
-
+    const gateway = request.gatewayConfig!;
     return reply.send({
       gatewayId: gateway.gatewayId,
       targetUrl: gateway.targetUrl,
