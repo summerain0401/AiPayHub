@@ -1,6 +1,6 @@
 # AI-Pay Hub
 
-[中文](README.md) | [English](README.en.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 An experimental per-use payment gateway built with TypeScript, Fastify, and Redis. Explores HTTP 402, payment orders, one-use retries, and streaming AI-service proxying. Includes gateway generation, administration, Dify OpenAPI import, and an Alipay adapter.
 
